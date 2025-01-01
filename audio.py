@@ -5,6 +5,7 @@ from tkinter import filedialog, messagebox
 from tkinter.ttk import Progressbar
 from datetime import datetime
 import threading
+import platform  # Add this import
 
 def check_ffmpeg_installed():
     try:
@@ -43,13 +44,15 @@ def convert_vob_to_mp4(input_vob, output_mp4, file_progress_callback=None):
         '-strict', 'experimental',
         output_mp4
     ]
+    if platform.system() == "Windows":
+        command = ['cmd', '/c'] + command  # Adjust command for Windows
     total_duration = get_video_duration(input_vob)
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
     global current_process
     current_process = process
     for line in process.stdout:
         if file_progress_callback:
-            file_progress_callback(line, total_duration)
+            file_progress_callback(line, total_duration, start_time)
     process.wait()
     end_time = datetime.now()
     duration = end_time - start_time
@@ -87,7 +90,7 @@ def start_conversion():
         progress_label['text'] = f"{progress}%"
         root.update_idletasks()
 
-    def update_file_progress(line, total_duration):
+    def update_file_progress(line, total_duration, start_time):
         if "time=" in line:
             time_str = line.split("time=")[1].split(" ")[0]
             if time_str.count(':') == 2:  # Ensure the time string has the correct format
@@ -97,12 +100,22 @@ def start_conversion():
                 progress_bar['value'] = progress
                 progress_label['text'] = f"{progress}%"
                 root.update_idletasks()
+                # Estimate remaining time for the current file
+                elapsed_time = datetime.now() - start_time
+                remaining_time = elapsed_time / (current_time / total_duration) - elapsed_time
+                remaining_minutes, remaining_seconds = divmod(remaining_time.total_seconds(), 60)
+                remaining_label['text'] = f"Remaining time for current file: {int(remaining_minutes)}m {int(remaining_seconds)}s"
 
     def do_conversions():
         try:
             check_ffmpeg_installed()
+            total_files = sum([len(files) for _, _, files in os.walk(directory) if any(f.endswith('.VOB') for f in files)])
+            converted_files = 0
+            start_time = datetime.now()
             convert_all_vob_in_directory(directory, update_overall_progress, update_file_progress)
-            messagebox.showinfo("Success", "All VOB files have been converted.")
+            end_time = datetime.now()
+            total_duration = end_time - start_time
+            messagebox.showinfo("Success", f"All VOB files have been converted in {total_duration}.")
         except FileNotFoundError as e:
             messagebox.showerror("Error", str(e))
 
@@ -134,6 +147,9 @@ progress_label.pack(pady=10)
 
 video_label = tk.Label(frame, text="")
 video_label.pack(pady=10)
+
+remaining_label = tk.Label(frame, text="Remaining time for current file: N/A")
+remaining_label.pack(pady=10)
 
 root.protocol("WM_DELETE_WINDOW", close_app)
 
